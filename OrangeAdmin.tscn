@@ -1,0 +1,13 @@
+[gd_scene load_steps=3 format=2]
+
+[ext_resource path="res://Player.tscn" type="PackedScene" id=1]
+[ext_resource path="res://OrangeAdmin.gd" type="Script" id=3]
+
+[node name="Level1" type="Node2D"]
+script = ExtResource( 3 )
+
+[node name="PlayerOne" parent="." instance=ExtResource( 1 )]
+position = Vector2( 88, 58 )
+
+[node name="PlayerTwo" parent="." instance=ExtResource( 1 )]
+position = Vector2( 184, 58 )
