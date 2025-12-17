@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Orange Admin - HTML Edition</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --text: #e5e7eb;
+      --accent: #f97316;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Inter", system-ui, -apple-system, sans-serif;
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
+    }
+    .frame {
+      background: var(--panel);
+      border: 2px solid var(--accent);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.45);
+      width: min(960px, 95vw);
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.3rem;
+      letter-spacing: 0.02em;
+    }
+    header .tag {
+      background: rgba(249, 115, 22, 0.15);
+      color: var(--accent);
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 0.85rem;
+      border: 1px solid rgba(249, 115, 22, 0.35);
+    }
+    .description {
+      margin-bottom: 12px;
+      color: #cbd5e1;
+      line-height: 1.5;
+    }
+    canvas {
+      width: 100%;
+      height: 540px;
+      background: linear-gradient(180deg, #111827 0%, #0b1224 100%);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 8px;
+      display: block;
+      image-rendering: pixelated;
+    }
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+      color: #cbd5e1;
+    }
+    .controls h3 {
+      margin: 0 0 4px;
+      font-size: 0.95rem;
+      color: var(--accent);
+    }
+    .keylist {
+      margin: 0;
+      padding-left: 16px;
+      line-height: 1.4;
+      color: #e2e8f0;
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <header>
+      <h1>Orange Admin – Zwei Spieler</h1>
+      <div class="tag">Standalone HTML</div>
+    </header>
+    <p class="description">
+      Diese Version läuft komplett im Browser. Steuere beide Figuren wie in der Godot-Demo, sie teilen sich das gleiche Sprite-Sheet
+      und haben die selben Lauf- und Sprunganimationen. Drücke <kbd>Esc</kbd>, um die Seite neu zu laden.
+    </p>
+    <canvas id="game" width="960" height="540"></canvas>
+    <div class="controls">
+      <div>
+        <h3>Player One</h3>
+        <ul class="keylist">
+          <li>W / A / S / D – Bewegung</li>
+          <li>Q – Sprung-Animation</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Player Two</h3>
+        <ul class="keylist">
+          <li>Pfeiltasten – Bewegung</li>
+          <li>J – Sprung-Animation</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const sprite = new Image();
+    sprite.src = 'Player02_ALL.png';
+
+    const frameSize = 16;
+    const scale = 4;
+    const world = { width: canvas.width / scale, height: canvas.height / scale };
+
+    const animations = {
+      idle: {
+        down: { frames: [6], flip: false },
+        left: { frames: [0], flip: true },
+        right: { frames: [0], flip: false },
+        up: { frames: [12], flip: false },
+      },
+      walk: {
+        down: { frames: [6, 7, 8, 9, 10, 11], flip: false },
+        left: { frames: [0, 1, 2, 3, 4, 5], flip: true },
+        right: { frames: [0, 1, 2, 3, 4, 5], flip: false },
+        up: { frames: [12, 13, 14, 15, 16, 17], flip: false },
+      },
+      jump: {
+        down: { frames: [38, 39, 40, 41, 42, 43, 44, 45, 46, 47], flip: false },
+        left: { frames: [18, 19, 20, 21, 22, 23, 24, 25, 26, 27], flip: true },
+        right: { frames: [18, 19, 20, 21, 22, 23, 24, 25, 26, 27], flip: false },
+        up: { frames: [28, 29, 30, 31, 32, 33, 34, 35, 36, 37], flip: false },
+      },
+    };
+
+    const keys = new Set();
+    window.addEventListener('keydown', (e) => {
+      keys.add(e.key.toLowerCase());
+      if (e.key === 'Escape') location.reload();
+    });
+    window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+
+    class Player {
+      constructor(name, x, y, controls, tint) {
+        this.name = name;
+        this.pos = { x, y };
+        this.vel = { x: 0, y: 0 };
+        this.direction = 'down';
+        this.tint = tint;
+        this.controls = controls;
+        this.frameTimer = 0;
+        this.frameIndex = 0;
+        this.state = 'idle';
+        this.maxSpeed = 80 / 60; // px per frame in world units
+        this.acceleration = 400 / 3600;
+        this.friction = 400 / 3600;
+      }
+
+      update(dt) {
+        const input = { x: 0, y: 0, jump: false };
+        if (keys.has(this.controls.up)) input.y -= 1;
+        if (keys.has(this.controls.down)) input.y += 1;
+        if (keys.has(this.controls.left)) input.x -= 1;
+        if (keys.has(this.controls.right)) input.x += 1;
+        input.jump = keys.has(this.controls.jump);
+
+        let inputLength = Math.hypot(input.x, input.y);
+        if (inputLength > 0) {
+          input.x /= inputLength;
+          input.y /= inputLength;
+          this.direction = Math.abs(input.x) > Math.abs(input.y)
+            ? (input.x > 0 ? 'right' : 'left')
+            : (input.y > 0 ? 'down' : 'up');
+        }
+
+        if (inputLength > 0) {
+          this.vel.x += input.x * this.acceleration * dt;
+          this.vel.y += input.y * this.acceleration * dt;
+          const speed = Math.hypot(this.vel.x, this.vel.y);
+          const max = this.maxSpeed;
+          if (speed > max) {
+            const scale = max / speed;
+            this.vel.x *= scale;
+            this.vel.y *= scale;
+          }
+        } else {
+          this.vel.x = this.#approach(this.vel.x, 0, this.friction * dt);
+          this.vel.y = this.#approach(this.vel.y, 0, this.friction * dt);
+        }
+
+        this.pos.x = Math.max(0, Math.min(world.width - 1, this.pos.x + this.vel.x * dt));
+        this.pos.y = Math.max(0, Math.min(world.height - 1, this.pos.y + this.vel.y * dt));
+
+        this.state = inputLength === 0 ? 'idle' : 'walk';
+        if (input.jump) this.state = 'jump';
+
+        const anim = animations[this.state][this.direction];
+        const speed = this.state === 'idle' ? 0.8 : this.state === 'walk' ? 10 : 12;
+        this.frameTimer += dt / 1000 * speed;
+        if (this.frameTimer >= 1) {
+          this.frameTimer = 0;
+          this.frameIndex = (this.frameIndex + 1) % anim.frames.length;
+        }
+      }
+
+      draw() {
+        const anim = animations[this.state][this.direction];
+        const frame = anim.frames[this.frameIndex % anim.frames.length];
+        const sx = (frame % 8) * frameSize;
+        const sy = Math.floor(frame / 8) * frameSize;
+        const dx = Math.round(this.pos.x * scale);
+        const dy = Math.round(this.pos.y * scale);
+
+        ctx.save();
+        if (anim.flip) {
+          ctx.translate(dx + frameSize * scale, dy);
+          ctx.scale(-1, 1);
+        } else {
+          ctx.translate(dx, dy);
+        }
+        ctx.drawImage(
+          sprite,
+          sx, sy, frameSize, frameSize,
+          0, 0,
+          frameSize * scale,
+          frameSize * scale
+        );
+        ctx.restore();
+
+        // nameplate
+        ctx.fillStyle = this.tint;
+        ctx.font = '12px Inter, system-ui';
+        ctx.fillText(this.name, dx + (anim.flip ? -6 : 6), dy - 6);
+      }
+
+      #approach(value, target, delta) {
+        if (value < target) return Math.min(value + delta, target);
+        if (value > target) return Math.max(value - delta, target);
+        return target;
+      }
+    }
+
+    const players = [
+      new Player('PlayerOne', 88, 58, { up: 'w', down: 's', left: 'a', right: 'd', jump: 'q' }, '#f97316'),
+      new Player('PlayerTwo', 184, 58, { up: 'arrowup', down: 'arrowdown', left: 'arrowleft', right: 'arrowright', jump: 'j' }, '#22c55e'),
+    ];
+
+    let last = performance.now();
+    function loop(now) {
+      const dt = Math.min(32, now - last);
+      last = now;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      ctx.save();
+      ctx.scale(scale, scale);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, world.width, world.height);
+      ctx.strokeStyle = '#1f2937';
+      for (let x = 0; x < world.width; x += 8) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, world.height);
+        ctx.stroke();
+      }
+      for (let y = 0; y < world.height; y += 8) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(world.width, y);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      players.forEach((p) => p.update(dt));
+      players.forEach((p) => p.draw());
+      requestAnimationFrame(loop);
+    }
+
+    sprite.onload = () => requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
